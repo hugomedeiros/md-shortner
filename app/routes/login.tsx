@@ -1,16 +1,10 @@
-import {
-  Form,
-  Link,
-  useActionData,
-  useSearchParams,
-  useNavigation,
-} from "@remix-run/react";
+import { useState } from "react";
+import { Form, Link, useActionData, useSearchParams } from "@remix-run/react";
 import { json, redirect } from "@remix-run/node";
 import type { ActionFunctionArgs, MetaFunction } from "@remix-run/node";
 import { Button } from "~/components/ui/button";
 import { login, createUserSession, getUserSession } from "~/lib/auth.server";
 import { useToast } from "~/components/ui/use-toast";
-import { useEffect } from "react";
 
 export const meta: MetaFunction = () => {
   return [
@@ -21,38 +15,38 @@ export const meta: MetaFunction = () => {
 
 export async function action({ request }: ActionFunctionArgs) {
   const session = await getUserSession(request);
-  if (session?.has("userId")) {
-    console.log("User already logged in, redirecting to dashboard");
+  if (session.has("userId")) {
     return redirect("/dashboard");
   }
 
   const formData = await request.formData();
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
-  const redirectTo = (formData.get("redirectTo") as string) || "/dashboard";
+  const redirectTo = formData.get("redirectTo") as string || "/dashboard";
 
   if (!email || !email.includes("@")) {
     return json(
-      { error: "Invalid email address", field: "email" },
+      { error: "Please enter a valid email address" },
       { status: 400 }
     );
   }
 
   if (!password || password.length < 6) {
     return json(
-      { error: "Password must be at least 6 characters", field: "password" },
+      { error: "Password must be at least 6 characters" },
       { status: 400 }
     );
   }
 
-  try {
-    const user = await login(email, password);
-    console.log("Login successful, creating session for user:", user);
-    return createUserSession(user.id, redirectTo);
-  } catch (error: any) {
-    console.error("Login failed:", error);
-    return json({ error: error.message, field: "general" }, { status: 401 });
+  const user = await login(email, password);
+  if (!user) {
+    return json(
+      { error: "Invalid email or password" },
+      { status: 401 }
+    );
   }
+
+  return createUserSession(user.id, redirectTo);
 }
 
 export default function Login() {
@@ -60,18 +54,15 @@ export default function Login() {
   const redirectTo = searchParams.get("redirectTo") || "/dashboard";
   const actionData = useActionData<typeof action>();
   const { toast } = useToast();
-    const navigation = useNavigation();
-  const isLoading = navigation.state === "submitting";
+  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (actionData?.error) {
-      toast({
-        title: "Login Failed",
-        description: actionData.error,
-        variant: "destructive",
-      });
-    }
-  }, [actionData, toast]);
+  if (actionData?.error) {
+    toast({
+      title: "Error",
+      description: actionData.error,
+      variant: "destructive",
+    });
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -98,13 +89,10 @@ export default function Login() {
               Enter your email below to login to your account
             </p>
           </div>
-          <Form method="post" className="space-y-4">
+          <Form method="post" className="space-y-4" onSubmit={() => setIsLoading(true)}>
             <input type="hidden" name="redirectTo" value={redirectTo} />
             <div className="space-y-2">
-              <label
-                htmlFor="email"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
+              <label htmlFor="email" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                 Email
               </label>
               <input
@@ -113,24 +101,16 @@ export default function Login() {
                 type="email"
                 autoComplete="email"
                 required
-                className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  actionData?.field === "email" ? "border-red-500" : ""
-                }`}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 placeholder="name@example.com"
               />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label
-                  htmlFor="password"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
+                <label htmlFor="password" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                   Password
                 </label>
-                <Link
-                  to="/forgot-password"
-                  className="text-sm text-primary hover:underline"
-                >
+                <Link to="/forgot-password" className="text-sm text-primary hover:underline">
                   Forgot password?
                 </Link>
               </div>
@@ -140,9 +120,7 @@ export default function Login() {
                 type="password"
                 autoComplete="current-password"
                 required
-                className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  actionData?.field === "password" ? "border-red-500" : ""
-                }`}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>

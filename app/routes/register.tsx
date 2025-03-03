@@ -15,8 +15,7 @@ export const meta: MetaFunction = () => {
 
 export async function action({ request }: ActionFunctionArgs) {
   const session = await getUserSession(request);
-  // Check if session is null before calling .has()
-  if (session !== null && session.has("userId")) {
+  if (session.has("userId")) {
     return redirect("/dashboard");
   }
 

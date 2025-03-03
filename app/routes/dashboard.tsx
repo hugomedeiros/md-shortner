@@ -1,7 +1,7 @@
 import { json, redirect } from "@remix-run/node";
 import { Link, Outlet, useLoaderData } from "@remix-run/react";
 import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
-import { requireUser } from "~/lib/auth.server"; // Corrected import
+import { requireUser } from "~/lib/auth.server";
 import { Button } from "~/components/ui/button";
 
 export const meta: MetaFunction = () => {

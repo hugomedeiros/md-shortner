@@ -2,91 +2,46 @@ import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { requireUser } from "~/lib/auth.server";
-import { supabase } from "~/lib/db.server"; // Import Supabase client
+import { db } from "~/lib/db.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const user = await requireUser(request);
-
-  try {
-    // Get total links count
-    const { data: linksData, error: linksError } = await supabase
-      .from("urls")
-      .select("*", { count: "exact", head: true }) // Use count: "exact" for accurate count
-      .eq("user_id", user.id);
-
-    if (linksError) {
-      throw linksError;
-    }
-    const totalLinks = linksData?.length || 0; // Supabase returns an array even for count
-
-    // Get total clicks count
-    const { data: clicksData, error: clicksError } = await supabase
-      .from("analytics")
-      .select("url_id", { count: "exact", head: true }) // Select a specific column for counting
-      .in(
-        "url_id",
-        (
-          await supabase.from("urls").select("id").eq("user_id", user.id)
-        ).data?.map((url) => url.id) || []
-      ); // Subquery to get url_ids
-
-    if (clicksError) {
-      throw clicksError;
-    }
-    const totalClicks = clicksData?.length || 0;
-
-    // Get recent links
-    const { data: recentLinks, error: recentLinksError } = await supabase
-      .from("urls")
-      .select("id, original_url, short_code, title, created_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    if (recentLinksError) {
-      throw recentLinksError;
-    }
-
-    return json({
-      totalLinks,
-      totalClicks,
-      recentLinks: recentLinks || [], // Ensure recentLinks is an array
-    });
-  } catch (error) {
-    console.error("Error in dashboard loader:", error);
-    // Handle the error appropriately, perhaps returning an error state
-    return json(
-      {
-        error: "Failed to load dashboard data",
-        totalLinks: 0,
-        totalClicks: 0,
-        recentLinks: [],
-      },
-      { status: 500 }
-    );
-  }
+  
+  // Get total links count
+  const linksResult = await db.execute({
+    sql: "SELECT COUNT(*) as count FROM urls WHERE user_id = ?",
+    args: [user.id],
+  });
+  const totalLinks = linksResult.rows[0]?.count || 0;
+  
+  // Get total clicks count
+  const clicksResult = await db.execute({
+    sql: `SELECT COUNT(*) as count FROM analytics 
+          WHERE url_id IN (SELECT id FROM urls WHERE user_id = ?)`,
+    args: [user.id],
+  });
+  const totalClicks = clicksResult.rows[0]?.count || 0;
+  
+  // Get recent links
+  const recentLinks = await db.execute({
+    sql: `SELECT id, original_url, short_code, title, created_at 
+          FROM urls 
+          WHERE user_id = ? 
+          ORDER BY created_at DESC 
+          LIMIT 5`,
+    args: [user.id],
+  });
+  
+  return json({
+    totalLinks,
+    totalClicks,
+    recentLinks: recentLinks.rows,
+  });
 }
 
 export default function DashboardIndex() {
-  const { totalLinks, totalClicks, recentLinks, error } =
-    useLoaderData<typeof loader>();
-
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Overview of your shortened URLs and analytics
-          </p>
-        </div>
-        <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <p className="text-red-500">Error: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
+  const { totalLinks, totalClicks, recentLinks } = useLoaderData<typeof loader>();
+  
   return (
     <div className="space-y-6">
       <div>
@@ -95,7 +50,7 @@ export default function DashboardIndex() {
           Overview of your shortened URLs and analytics
         </p>
       </div>
-
+      
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <div className="flex items-center gap-2">
@@ -106,7 +61,7 @@ export default function DashboardIndex() {
             <p className="text-3xl font-bold">{totalLinks}</p>
           </div>
         </div>
-
+        
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <ClickIcon className="h-5 w-5 text-primary" />
@@ -116,7 +71,7 @@ export default function DashboardIndex() {
             <p className="text-3xl font-bold">{totalClicks}</p>
           </div>
         </div>
-
+        
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <TrendingUpIcon className="h-5 w-5 text-primary" />
@@ -124,15 +79,13 @@ export default function DashboardIndex() {
           </div>
           <div className="mt-3">
             <p className="text-3xl font-bold">
-              {totalLinks > 0
-                ? Math.round((totalClicks / totalLinks) * 10) / 10
-                : 0}
+              {totalLinks > 0 ? Math.round((totalClicks / totalLinks) * 10) / 10 : 0}
             </p>
             <p className="text-sm text-muted-foreground">Clicks per link</p>
           </div>
         </div>
       </div>
-
+      
       <div className="rounded-lg border shadow-sm">
         <div className="p-6">
           <h3 className="text-lg font-medium">Recent Links</h3>
@@ -144,9 +97,7 @@ export default function DashboardIndex() {
                 <div key={link.id} className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium">
-                        {link.title || "Untitled Link"}
-                      </p>
+                      <p className="font-medium">{link.title || 'Untitled Link'}</p>
                       <p className="text-sm text-muted-foreground truncate max-w-md">
                         {link.original_url}
                       </p>

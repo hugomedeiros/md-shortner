@@ -1,22 +1,62 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@libsql/client";
 
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_KEY || "";
+const dbUrl = process.env.DATABASE_URL || "file:./data.db";
+const dbAuthToken = process.env.DATABASE_AUTH_TOKEN;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const db = createClient({
+  url: dbUrl,
+  authToken: dbAuthToken,
+});
 
-// Initialize database tables if they don't exist (Supabase handles this differently)
+// Initialize database tables if they don't exist
 export async function initDb() {
   try {
-    console.log("Checking Supabase database schema...");
+    console.log("Initializing database tables...");
+    
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        name TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at INTEGER NOT NULL
+      )
+    `);
 
-    // In Supabase, you typically manage schema through the Supabase dashboard
-    // or using migrations.  This function is kept for compatibility with
-    // the previous structure, but it doesn't actively create tables here.
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS urls (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        original_url TEXT NOT NULL,
+        short_code TEXT UNIQUE NOT NULL,
+        title TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
 
-    console.log("Supabase schema check complete.");
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS analytics (
+        id TEXT PRIMARY KEY,
+        url_id TEXT NOT NULL,
+        visitor_ip TEXT,
+        user_agent TEXT,
+        referrer TEXT,
+        country TEXT,
+        city TEXT,
+        browser TEXT,
+        os TEXT,
+        device TEXT,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (url_id) REFERENCES urls(id)
+      )
+    `);
+    
+    console.log("Database tables initialized successfully");
   } catch (error) {
-    console.error("Error initializing Supabase database:", error);
+    console.error("Error initializing database:", error);
     throw error;
   }
 }
