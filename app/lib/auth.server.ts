@@ -1,9 +1,7 @@
-import { db } from "./db.server";
-import bcrypt from "bcryptjs";
+import { supabase } from "./db.server";
 import { createCookieSessionStorage, redirect } from "@remix-run/node";
-import { nanoid } from "nanoid";
 
-// Session storage
+// Define the session storage
 const sessionStorage = createCookieSessionStorage({
   cookie: {
     name: "__session",
@@ -17,78 +15,83 @@ const sessionStorage = createCookieSessionStorage({
 
 // Get user session
 export async function getUserSession(request: Request) {
-  return sessionStorage.getSession(request.headers.get("Cookie"));
+  const cookie = request.headers.get("Cookie");
+  if (!cookie) {
+    console.log("getUserSession: No cookie found");
+    return null;
+  }
+  const session = await sessionStorage.getSession(cookie);
+  console.log("getUserSession: Session retrieved", session.data);
+  return session;
 }
 
-// Get logged in user
+// Get user details
 export async function getUser(request: Request) {
   const session = await getUserSession(request);
-  const userId = session.get("userId");
-  
-  if (!userId) return null;
-  
+  const userId = session?.get("userId");
+
+  if (!userId) {
+    console.log("getUser: No userId in session");
+    return null;
+  }
+
   try {
-    const user = await db.execute({
-      sql: "SELECT id, email, name, role FROM users WHERE id = ?",
-      args: [userId],
-    });
-    
-    if (user.rows.length === 0) return null;
-    return user.rows[0] as UserInfo;
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, email, name, role")
+      .eq("id", userId)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      console.log("getUser: No user data found for userId", userId);
+      return null;
+    }
+
+    console.log("getUser: User data retrieved", data);
+    return data as UserInfo;
   } catch (error) {
-    console.error("Error getting user:", error);
+    console.error("Database error fetching user:", error);
     return null;
   }
 }
 
-// Login user
+// Login function
 export async function login(email: string, password: string) {
-  const user = await db.execute({
-    sql: "SELECT * FROM users WHERE email = ?",
-    args: [email],
-  });
-  
-  if (user.rows.length === 0) {
-    return null;
+  if (!email || !password) {
+    throw new Error("Email and password are required");
   }
-  
-  const isCorrectPassword = await bcrypt.compare(
-    password,
-    user.rows[0].password as string
-  );
-  
-  if (!isCorrectPassword) {
-    return null;
-  }
-  
-  return {
-    id: user.rows[0].id,
-    email: user.rows[0].email,
-    name: user.rows[0].name,
-    role: user.rows[0].role,
-  } as UserInfo;
-}
 
-// Register user
-export async function register(email: string, password: string, name: string) {
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const id = nanoid();
-  
   try {
-    await db.execute({
-      sql: "INSERT INTO users (id, email, password, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      args: [id, email, hashedPassword, name, "user", Date.now()],
-    });
-    
-    return {
-      id,
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      name,
-      role: "user",
+      password,
+    });
+
+    if (error) {
+      console.error("Supabase signInWithPassword error:", error);
+      throw error;
+    }
+     if (!data || !data.user) {
+        console.error("Supabase signInWithPassword: No user data");
+        throw new Error("Invalid credentials");
+      }
+
+    console.log("Supabase signInWithPassword successful:", data);
+
+    return {
+      id: data.user.id,
+      email: data.user.email,
+      name: data.user.user_metadata?.name, // Fetch name from user_metadata
+      role: data.user.user_metadata?.role,  // Fetch role from user_metadata
     } as UserInfo;
+
   } catch (error) {
-    console.error("Error registering user:", error);
-    return null;
+    console.error("Login error:", error);
+    throw error;
   }
 }
 
@@ -96,57 +99,79 @@ export async function register(email: string, password: string, name: string) {
 export async function createUserSession(userId: string, redirectTo: string) {
   const session = await sessionStorage.getSession();
   session.set("userId", userId);
-  
+  console.log("createUserSession: Session created with userId", userId);
+  const committed = await sessionStorage.commitSession(session);
+    console.log("createUserSession: committed", committed);
+
   return redirect(redirectTo, {
     headers: {
-      "Set-Cookie": await sessionStorage.commitSession(session),
+      "Set-Cookie": committed,
     },
   });
 }
 
-// Logout user
-export async function logout(request: Request) {
-  const session = await getUserSession(request);
-  
-  return redirect("/login", {
-    headers: {
-      "Set-Cookie": await sessionStorage.destroySession(session),
-    },
-  });
-}
-
-// Require user authentication
-export async function requireUser(
-  request: Request,
-  redirectTo: string = new URL(request.url).pathname
-) {
-  const user = await getUser(request);
-  
-  if (!user) {
-    const searchParams = new URLSearchParams([
-      ["redirectTo", redirectTo],
-    ]);
-    throw redirect(`/login?${searchParams}`);
-  }
-  
-  return user;
-}
-
-// Require admin role
-export async function requireAdmin(request: Request) {
-  const user = await requireUser(request);
-  
-  if (user.role !== "admin") {
-    throw redirect("/dashboard");
-  }
-  
-  return user;
-}
-
-// Types
+// User info type
 export interface UserInfo {
   id: string;
   email: string;
   name: string | null;
-  role: string;
+  role: string | null;
+}
+
+// Register function
+export async function register(email: string, password: string, name: string) {
+    if (!email || !password || !name) {
+        throw new Error("Email, password, and name are required");
+    }
+
+    try {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: {
+                    name: name,
+                    role: 'user', // Set a default role
+                }
+            }
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || !data.user) {
+            throw new Error("User creation failed");
+        }
+
+        // Insert user details into 'users' table (if not already handled by a trigger)
+        const { error: insertError } = await supabase.from('users').insert([
+            { id: data.user.id, email: data.user.email, name: name, role: 'user' },
+        ]);
+
+        if (insertError) {
+          console.warn("Failed to insert user details into 'users' table:", insertError);
+          // Consider deleting the user from auth if profile insertion fails.
+        }
+
+        return {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.user_metadata.name,
+            role: data.user.user_metadata.role,
+        } as UserInfo;
+
+    } catch (error) {
+        console.error("Registration error:", error);
+        throw error;
+    }
+}
+
+// Require user function
+export async function requireUser(request: Request) {
+    const user = await getUser(request);
+    if (!user) {
+        throw redirect("/login");
+    }
+    return user;
 }

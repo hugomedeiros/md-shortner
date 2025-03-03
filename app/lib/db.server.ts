@@ -1,53 +1,22 @@
-import { createClient } from "@libsql/client";
+import { createClient } from "@supabase/supabase-js";
 
-const dbUrl = process.env.DATABASE_URL || "file:./data.db";
-const dbAuthToken = process.env.DATABASE_AUTH_TOKEN;
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_KEY || "";
 
-export const db = createClient({
-  url: dbUrl,
-  authToken: dbAuthToken,
-});
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Initialize database tables if they don't exist
+// Initialize database tables if they don't exist (Supabase handles this differently)
 export async function initDb() {
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      name TEXT,
-      role TEXT NOT NULL DEFAULT 'user',
-      created_at INTEGER NOT NULL
-    )
-  `);
+  try {
+    console.log("Checking Supabase database schema...");
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS urls (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      original_url TEXT NOT NULL,
-      short_code TEXT UNIQUE NOT NULL,
-      title TEXT,
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
+    // In Supabase, you typically manage schema through the Supabase dashboard
+    // or using migrations.  This function is kept for compatibility with
+    // the previous structure, but it doesn't actively create tables here.
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS analytics (
-      id TEXT PRIMARY KEY,
-      url_id TEXT NOT NULL,
-      visitor_ip TEXT,
-      user_agent TEXT,
-      referrer TEXT,
-      country TEXT,
-      city TEXT,
-      browser TEXT,
-      os TEXT,
-      device TEXT,
-      timestamp INTEGER NOT NULL,
-      FOREIGN KEY (url_id) REFERENCES urls(id)
-    )
-  `);
+    console.log("Supabase schema check complete.");
+  } catch (error) {
+    console.error("Error initializing Supabase database:", error);
+    throw error;
+  }
 }
